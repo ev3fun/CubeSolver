@@ -1,0 +1,475 @@
+' port values
+CSPort = 2
+USPort = 1
+MMPort = "C"
+BM1Port = "A"
+BM2Port = "B"
+
+' global variables
+scanrgb_delay = 50
+turntable_position = 0
+turntable_offset = 24
+tilt_offset = 12
+scan_red[0] = 0
+scan_green[0] = 0
+scan_blue[0] = 0
+color[0] = "B"
+rgb[0] = 0
+movestr = ""
+path_pg = ""
+
+solved = 1
+
+' Main program
+GetProgramPath()
+LCD.Clear()
+LCD.Text(1, 0, 0, 2, "CubeSolver")
+LCD.FillRect(1, 0, 18, 154, 3)
+EV3.SetLEDColor("RED", "FLASH")
+ResetScan()
+ResetTilt()
+ResetRGB()
+
+LCD.Text(1, 0, 40, 2, "Ready      ")
+
+While "True"
+  Sensor.SetMode(USPort, 0)
+  dist = Sensor.ReadRawValue(USPort, 0)
+  If ((dist > 60) And (dist < 100)) Then
+    If (solved = 1) Then
+      LCD.Text(1, 0, 40, 2, "Remove cube")
+    Else
+      Program.Delay(3000)
+      Sensor.SetMode(USPort, 0)
+      dist = Sensor.ReadRawValue(USPort, 0)
+      If ((dist > 60 Or dist = 60) And (dist < 100 Or dist = 100)) Then
+        ScanAndSolve()
+        solved = 1
+      Else
+        LCD.Text(1, 0, 40, 2, "Insert cube")
+        EV3.SetLEDColor("ORANGE", "NORMAL")
+        solved = 0
+      EndIf
+    EndIf
+  Else
+    LCD.Text(1, 0, 40, 2, "Insert cube")
+    EV3.SetLEDColor("ORANGE", "NORMAL")
+    solved = 0
+  EndIf
+  Program.Delay(500)
+EndWhile
+
+ERROR:
+ScanAway()
+Program.Delay(5000)
+
+' input: none, output: void
+Sub ScanAndSolve
+  retrynum = 3
+  EV3.SetLEDColor("ORANGE", "FLASH")
+  RETRY:
+  While retrynum > 0
+    ScanCube()
+    Solve()
+  EndWhile
+  EV3.SetLEDColor("GREEN", "FLASH")
+
+  ScanAway()
+  ApplyMoves()
+  LCD.Text(1, 0, 40, 2, "Solved     ")
+  TiltAway()
+  m = 8
+  Spin()
+EndSub
+
+' input: none, output: void
+Sub ApplyMoves
+  m_len = Text.GetLength(movestr)
+  For ai = 1 To m_len - 1 Step 2
+    m_a = Text.GetSubText(movestr, ai, 1)
+    m_s = Text.GetSubText(movestr, ai+1, 1)
+    If (m_s = "1") Then
+      n = 1
+      m = 1
+    ElseIf (m_s = "2") Then
+      n = 2
+      m = 2
+    Else
+      n = 3
+      m = -1
+    EndIf
+    If (m_a = "S") Then
+      Program.Delay(50)
+      Spin()
+    ElseIf (m_a = "R") Then
+      Program.Delay(50)
+      Tilt()
+    Else
+      Program.Delay(50)
+      Turn()
+    EndIf
+  EndFor
+EndSub
+
+' input: m (90), output: void
+Sub Turn
+  TiltHold()
+  turn_cut = -50
+  If (m = 1) Then
+    turn_cut = 33
+  ElseIf (m = 2) Then
+    turn_cut = 39
+  EndIf
+  turntable_position = turntable_position - m*(90*3)
+  bm2_power = 100
+  bm2_r1 = turntable_position - turn_cut - Motor.GetCount(BM2Port)
+  BM2Move()
+  Program.Delay(100)
+  bm2_power = 100
+  bm2_r1 = turntable_position - Motor.GetCount(BM2Port)
+  BM2Move()
+EndSub
+
+' input: none, output: void
+Sub Solve
+  count_y = 0
+  count_w = 0
+  count_b = 0
+  count_g = 0
+  count_r = 0
+  color_sum = 0
+  cmdarg = ""
+  handle = EV3File.OpenWrite(path_pg + "scandata.txt")
+  For i = 0 To 53
+    If (scan_blue[i] < scan_red[i] And scan_blue[i] < scan_green[i] And scan_red[i] > 100 And scan_green[i] > 100) Then
+      color[i] = "Y"
+      count_y = count_y + 1
+    ElseIf (scan_red[i] + scan_green[i] + scan_blue[i] > 400) Then
+      color[i] = "W"
+      count_w = count_w + 1
+    ElseIf (scan_red[i] + scan_green[i] < scan_blue[i]) Then
+      color[i] = "B"
+      count_b = count_b + 1
+    ElseIf (scan_green[i] > scan_blue[i] And scan_green[i] > scan_red[i]) Then
+      color[i] = "G"
+      count_g = count_g + 1
+    ElseIf (scan_blue[i] < 80 And scan_green[i] < 80 And scan_green[i] + scan_blue[i] < scan_red[i]) Then
+      color[i] = "R"
+      count_r = count_r + 1
+    Else
+      color[i] = "O"
+    EndIf
+    cmdarg = cmdarg + color[i]
+    line = "" + scan_red[i] + "," + scan_green[i] + "," + scan_blue[i] + "," + color[i]
+    EV3File.WriteLine (handle, line)
+  EndFor
+  EV3File.WriteLine(handle, cmdarg)
+  EV3File.Close(handle)
+  
+  For i = 0 To 45 Step 9
+    If (color[i] = "Y") Then
+      color_sum = color_sum + 1
+    ElseIf (color[i] = "W") Then
+      color_sum = color_sum + 2
+    ElseIf (color[i] = "B") Then
+      color_sum = color_sum + 3
+    ElseIf (color[i] = "G") Then
+      color_sum = color_sum + 4
+    ElseIf (color[i] = "R") Then
+      color_sum = color_sum + 5
+    Else
+      color_sum = color_sum + 6
+    EndIf
+  EndFor
+  If (color_sum <> 21 Or count_y <> 9 Or count_w <> 9 Or count_b <> 9 Or count_g <> 9 Or count_r <> 9) Then
+    retrynum = retrynum - 1
+    If (retrynum < 1) Then
+      LCD.Text(1, 0, 40, 2, "Scan error ")
+      goto ERROR
+    EndIf
+  Else
+    ' end the retry loop
+    retrynum = 0
+    LCD.Text(1, 0, 40, 2, "Solving    ")
+    cmd = path_pg + "cube " + cmdarg
+    ret = EV3.SystemCall(cmd)
+    If (ret <> 0) Then
+      LCD.Text(1, 0, 40, 2, "Can't solve")
+      goto ERROR
+    EndIf
+    handle = EV3File.OpenRead(path_pg + "cube.res")
+    linestr = EV3File.ReadLine(handle)
+    movestr = linestr
+    While linestr <> ""
+      linestr = EV3File.ReadLine(handle)
+      movestr = movestr + linestr
+    EndWhile
+    EV3File.Close(handle)
+
+    handle = EV3File.OpenAppend(path_pg + "scandata.txt")
+    EV3File.WriteLine(handle, movestr)
+    EV3File.Close(handle)
+  EndIf
+EndSub
+
+' input: none, output: void
+Sub ScanCube
+  LCD.Text(1, 0, 40, 2, "Scan cube  ")
+  n = 1
+  Sensor.SetMode(CSPort, 4)
+  fi = 0
+  ScanFace()
+  Thread.Run = ScanAway
+  Program.Delay(100)
+  Tilt()
+  fi = 1
+  ScanFace()
+  Thread.Run = ScanAway
+  Program.Delay(100)
+  Tilt()
+  fi = 2
+  ScanFace()
+  Thread.Run = ScanAway
+  m = 1
+  Spin()
+  Tilt()
+  fi = 3
+  ScanFace()
+  Thread.Run = ScanAway
+  m = -1
+  Spin()
+  Tilt()
+  fi = 4
+  ScanFace()
+  Thread.Run = ScanAway
+  Program.Delay(100)
+  Tilt()
+  fi = 5
+  ScanFace()
+EndSub
+
+' input: n, output: void
+Sub Tilt
+  bm1_r1 = Motor.GetCount(BM1Port)
+  If (bm1_r1 < 60) Then
+    TiltHold()
+  EndIf
+  For i = 1 To n
+    If (i > 1) Then
+      Program.Delay(500)
+    EndIf
+    bm1_power = 100
+    bm1_r1 = tilt_offset + 195 - Motor.GetCount(BM1Port)
+    BM1Move()
+    Motor.Move(BM1Port, -75, 15, "True")
+    Program.Delay(70)
+    bm1_power = 75
+    bm1_r1 = tilt_offset + 60 - Motor.GetCount(BM1Port)
+    BM1Move()
+    TiltHold()
+  EndFor
+EndSub
+
+' input: none, output: void
+Sub TiltHold
+  bm1_power = 60
+  bm1_r1 = tilt_offset + 85 - Motor.GetCount(BM1Port)
+  BM1Move()
+EndSub
+
+' input: m (90), output: void
+Sub Spin
+  bm1_r1 = 15 - Motor.GetCount(BM1Port)
+  If (bm1_r1 < 0) Then
+    Motor.Move(BM1Port, -75, -bm1_r1, "True")
+  EndIf
+  turntable_position = turntable_position - m*(90*3)
+  bm2_power = 100
+  bm2_r1 = turntable_position - Motor.GetCount(BM2Port)
+  BM2Move()
+EndSub
+
+' input: fi, output: void
+Sub ScanFace
+  Thread.Run = TiltAway
+  ScanMiddle()
+  'Motor.StartPower(MMPort, 70)
+  'ScanRGB()
+  'mm_r1 = Motor.GetCount(MMPort)
+  'While mm_r1 < -650 Or mm_r1 = -650
+  '  mm_r1 = Motor.GetCount(MMPort)
+  'EndWhile
+  For i = 0 To 3
+    pi = Math.Remainder((i * 2 + 1), 8)
+    ScanCorner()
+    pi = pi + 1
+    ScanEdge()
+  EndFor
+
+  bm2_r1 = turntable_position - Motor.GetCount(BM2Port)
+  If (bm2_r1 > 0) Then
+    turntable_position = turntable_position - (bm2_r1 - Math.Remainder(bm2_r1, (360*3)))
+  EndIf
+  bm2_power = 75
+  bm2_r1 = turntable_position - Motor.GetCount(BM2Port)
+  BM2Move()
+EndSub
+  
+' input: fi, output: void
+Sub ScanMiddle
+  Program.Delay(100)
+  mm_power = -80
+  mm_r1 = 720 + Motor.GetCount(MMPort)
+  MMMove()
+  pi = 0
+  ScanPiece()
+EndSub
+
+' input: fi, pi, output: void
+Sub ScanCorner
+  Spin45()
+  mm_power = 80
+  mm_r1 = -540 - Motor.GetCount(MMPort)
+  MMMove()
+  ScanPiece()
+EndSub
+
+' input: fi, pi, output: void
+Sub ScanEdge
+  Spin45()
+  mm_power = -80
+  mm_r1 = 590 + Motor.GetCount(MMPort)
+  MMMove()
+  ScanPiece()
+EndSub
+
+' input: none, output: void
+Sub Spin45
+  Motor.Move(BM2Port, -70, 45*3, "True")
+  turntable_position = turntable_position - (45*3)
+EndSub
+  
+' input: fi, pi, output: void
+Sub ScanPiece
+  idx = fi * 9 + pi
+  Program.Delay(100)
+  ScanRGB()
+  scan_red[idx] = rgb[0]
+  scan_green[idx] = rgb[1]
+  scan_blue[idx] = rgb[2]
+EndSub
+
+' input: none, output: void
+Sub ResetScan
+  mm_r1 = 0
+  mm_r2 = 1
+  LCD.Text(1, 0, 40, 2, "Reset Scan ")
+  Motor.StartPower(MMPort, 40)
+  While mm_r1 <> mm_r2
+    mm_r1 = Motor.GetCount(MMPort)
+    Program.Delay(200)
+    mm_r2 = Motor.GetCount(MMPort)
+  EndWhile
+  Motor.Move(MMPort, -40, 100, "True")
+  Motor.StartPower(MMPort, 20)
+  mm_r1 = mm_r2 + 1
+  While mm_r1 <> mm_r2
+    mm_r1 = Motor.GetCount(MMPort)
+    Program.Delay(500)
+    mm_r2 = Motor.GetCount(MMPort)
+  EndWhile
+  Motor.ResetCount(MMPort)
+  ScanAway()
+EndSub
+
+' input: none, output: void
+Sub ScanAway
+  mm_power = -100
+  mm_r1 = 340 + Motor.GetCount(MMPort)
+  MMMove()
+EndSub
+
+' input: none, output: void
+Sub ResetTilt
+  bm1_r1 = 0
+  bm1_r2 = 1
+  LCD.Text(1, 0, 40, 2, "Reset Tilt ")
+  Motor.StartPower(BM1Port, -20)
+  While bm1_r1 <> bm1_r2
+    bm1_r1 = Motor.GetCount(BM1Port)
+    Program.Delay(200)
+    bm1_r2 = Motor.GetCount(BM1Port)
+  EndWhile
+  Motor.ResetCount(BM1Port)
+  TiltAway()
+EndSub
+
+Sub TiltAway
+  bm1_power = 70
+  bm1_r1 = 10 - Motor.GetCount(BM1Port)
+  BM1Move()
+EndSub
+
+' input: none, output: void
+Sub ResetRGB
+  LCD.Text(1, 0, 40, 2, "Reset RGB  ")
+  Motor.StartPower(BM2Port, -70)
+  For i = 1 To 10
+    ScanRGB()
+  EndFor
+  bm2_power = 75
+  bm2_r1 = turntable_position - Motor.GetCount(BM2Port)
+  BM2Move()
+EndSub
+
+' input: none, output: rgb
+Sub ScanRGB
+  rgb_sum = -1
+  Sensor.SetMode(CSPort, 0)
+  While rgb_sum < 0
+    Program.Delay(scanrgb_delay)
+    Sensor.SetMode(CSPort, 4)
+    Program.Delay(1)
+    rgb = Sensor.ReadRaw(CSPort, 3)
+    rgb_sum = rgb[0] + rgb[1] + rgb[2]
+    If (rgb_sum < 0) Then
+      scanrgb_delay = Math.Remainder(scanrgb_delay + 1, 200)
+    EndIf
+  EndWhile
+EndSub
+
+' input: bm1_power, bm1_r1, output: void
+Sub BM1Move
+    If (bm1_r1 < 0) Then
+      bm1_power = -bm1_power
+      bm1_r1 = -bm1_r1
+    EndIf
+    Motor.Move(BM1Port, bm1_power, bm1_r1, "True")
+EndSub
+
+' input: bm2_power, bm2_r1, output: void
+Sub BM2Move
+    If (bm2_r1 < 0) Then
+      bm2_power = -bm2_power
+      bm2_r1 = -bm2_r1
+    EndIf
+    Motor.Move(BM2Port, bm2_power, bm2_r1, "True")
+EndSub
+
+' input: mm_power, mm_r1, output: void
+Sub MMMove
+    If (mm_r1 < 0) Then
+      mm_power = -mm_power
+      mm_r1 = -mm_r1
+    EndIf
+    Motor.Move(MMPort, mm_power, mm_r1, "True")
+EndSub
+
+' input: none, output: void
+Sub GetProgramPath
+  '  ./prjs/xxxx
+  path_pg = Program.Directory()
+  path_pg = Text.GetSubTextToEnd(path_pg, 3) + "/"
+  path_pg = "/home/root/lms2012/" + path_pg
+EndSub
+  
