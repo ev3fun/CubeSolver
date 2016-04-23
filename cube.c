@@ -255,7 +255,7 @@ int main(int argc, char **argv){
     char resfile[1024];
     int f,i=0,j=0,k=0,l=0,pc,mor;
     strcpy(resfile, argv[0]);
-    for(f=strlen(resfile); f>0 ; f--){
+    for(f=strlen(resfile)-1; f>0 ; f--){
         if(resfile[f]==SLASH){
             ++f;
             break;

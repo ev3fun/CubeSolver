@@ -42,7 +42,7 @@ While "True"
       Program.Delay(3000)
       Sensor.SetMode(USPort, 0)
       dist = Sensor.ReadRawValue(USPort, 0)
-      If ((dist > 60 Or dist = 60) And (dist < 100 Or dist = 100)) Then
+      If ((dist > 60) And (dist < 100)) Then
         ScanAndSolve()
         solved = 1
       Else
